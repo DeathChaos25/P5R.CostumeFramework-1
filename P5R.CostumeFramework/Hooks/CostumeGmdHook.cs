@@ -7,6 +7,8 @@ using Reloaded.Hooks.Definitions;
 using Reloaded.Hooks.Definitions.Enums;
 using Reloaded.Hooks.Definitions.X64;
 using Reloaded.Memory.SigScan.ReloadedII.Interfaces;
+using System;
+using System.Net;
 using System.Runtime.InteropServices;
 
 namespace P5R.CostumeFramework.Hooks;
@@ -17,6 +19,10 @@ internal unsafe class CostumeGmdHook
     private delegate void LoadAssetHook(nint param1, uint modelId, uint gmdId, uint param4, int param5);
     private IHook<LoadAssetHook>? loadAssetHook;
     private MultiAsmHook? loadAssetAsmHooks;
+
+    [Function(CallingConventions.Microsoft)]
+    private delegate bool LoadCombatAnimationString(nuint reshndField00, uint gapID, nint outPath, uint anim_type);
+    private IHook<LoadCombatAnimationString>? _loadCombatAnimationStringHook;
 
     private readonly nint* gmdFileStrPtr;
     private nint tempGmdStrPtr;
@@ -78,6 +84,15 @@ internal unsafe class CostumeGmdHook
             this.loadAssetAsmHooks = new(assetRedirectHooks.ToArray());
             this.loadAssetAsmHooks.Activate().Disable();
         });
+
+        scanner.Scan("Load Combat Animation Files", "E8 ?? ?? ?? ?? 4C 8B C3 48 8D 4C 24 ?? E8 ?? ?? ?? ?? 48 89 83 ?? ?? ?? ?? 48 8B B4 24 ?? ?? ?? ??", result =>
+        {
+            // CALL -> Thunk -> Function
+            var funcAddress = GetGlobalAddress(result + 1);
+            funcAddress = GetGlobalAddress((nint)(funcAddress + 1));
+
+            this._loadCombatAnimationStringHook = hooks.CreateHook<LoadCombatAnimationString>(this.LoadCombatAnimationStringImpl, (long)funcAddress).Activate();
+        });
     }
 
     private void LoadAssetImpl(nint param1, uint modelId, uint gmdId, uint param4, int param5)
@@ -97,6 +112,41 @@ internal unsafe class CostumeGmdHook
 
         this.loadAssetHook?.OriginalFunction(param1, modelId, gmdId, param4, param5);
         this.ClearAssetRedirect();
+    }
+
+    private bool LoadCombatAnimationStringImpl(nuint reshndField00, uint gapID, nint outPath, uint anim_type)
+    {
+        bool result = _loadCombatAnimationStringHook.OriginalFunction(reshndField00, gapID, outPath, anim_type);
+
+        nuint uVar1 = reshndField00 >> 0x3a;
+
+        if (-1 < (int)anim_type)
+        {
+            uVar1 = anim_type;
+        }
+
+        var charID = (Character)((reshndField00 >> 0x14) & 0xffff);
+
+        if ((int)charID <= 10)
+        {
+            string target_file = Marshal.PtrToStringAnsi(outPath);
+
+            if (anim_type == 1)
+            {
+                var outptr = this.RedirectCombatGAPFile(charID, gapID);
+
+                Log.Verbose($"Checking Combat GAP {gapID} for {charID} at {target_file}");
+
+                if (outptr != String.Empty)
+                {
+                    ReplaceFilePathWithMod(outPath, outptr);
+                    result = true;
+                    Log.Information($"{charID}: Successfully redirected combat GAP");
+                }
+            }
+        }
+
+        return result;
     }
 
     private void RedirectWeaponGmd(nint param1, uint modelId, WeaponType weaponType, uint param4, int param5)
@@ -160,6 +210,40 @@ internal unsafe class CostumeGmdHook
         else Log.Verbose($"No redirect match for {character} in {outfitSet}");
     }
 
+    private string RedirectCombatGAPFile(Character character, uint gapID)
+    {
+        string result = String.Empty;
+
+        var outfitItemId = this.p5rLib.GET_EQUIP(character, EquipSlot.Costume);
+        var gmdId = this.GetCostumeModelId(outfitItemId);
+        var outfitId = this.GetOutfitId(outfitItemId);
+        var outfitSet = (CostumeSet)VirtualOutfitsSection.GetOutfitSetId(outfitItemId);
+
+        if (IsOutfitModelId((int)gmdId)
+            && this.costumes.TryGetCostume(outfitItemId, out var costume))
+        {
+            if (gapID == 51)
+            {
+                if (costume.CombatGAP_51_BindPath != null)
+                {
+                    result = costume.CombatGAP_51_BindPath;
+                    Log.Verbose($"{character}: redirected {outfitSet} Combat GAP 51 to {costume.CombatGAP_51_BindPath}");
+                }
+            }
+            else if (gapID == 52)
+            {
+                if (costume.CombatGAP_52_BindPath != null)
+                {
+                    result = costume.CombatGAP_52_BindPath;
+                    Log.Verbose($"{character}: redirected {outfitSet} Combat GAP 52 to {costume.CombatGAP_52_BindPath}");
+                }
+            }
+        }
+        else Log.Verbose($"No redirect match for {character} in {outfitSet}");
+
+        return result;
+    }
+
     private void SetAssetRedirect(string redirectPath)
     {
         this.tempGmdStrPtr = StringsCache.GetStringPtr(redirectPath);
@@ -191,5 +275,21 @@ internal unsafe class CostumeGmdHook
             this.SetAssetRedirect(redirectPath);
             Log.Debug($"Weapon GMD redirected: {character} || {redirectPath}");
         }
+    }
+
+    private unsafe nuint GetGlobalAddress(nint ptrAddress)
+    {
+        return (nuint)((*(int*)ptrAddress) + ptrAddress + 4);
+    }
+
+    unsafe static int ReplaceFilePathWithMod(nint target, string newString)
+    {
+        var strBuffer = Marshal.StringToHGlobalAnsi(newString);
+
+        Buffer.MemoryCopy((void*)strBuffer, (void*)target, newString.Length + 1, newString.Length + 1);
+
+        Marshal.FreeHGlobal(strBuffer);
+
+        return newString.Length + 1;
     }
 }

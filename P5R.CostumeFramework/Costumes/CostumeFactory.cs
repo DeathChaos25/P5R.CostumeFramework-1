@@ -1,5 +1,6 @@
 ﻿using CriFs.V2.Hook.Interfaces;
 using P5R.CostumeFramework.Models;
+using System.Runtime.InteropServices;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
@@ -150,6 +151,20 @@ internal class CostumeFactory
             {
                 this.criFsApi.AddBind(file, Path.GetRelativePath(costumeBindDir, file), "Costume Framework");
             }
+        }
+
+        var _51gapfile = Path.Join(costumeDir, "51.gap");
+        if (File.Exists(_51gapfile))
+        {
+            costume.CombatGAP_51_BindPath = Path.GetRelativePath(costumesDir, _51gapfile);
+            this.criFsApi.AddBind(_51gapfile, costume.CombatGAP_51_BindPath, "Costume Framework");
+        }
+
+        var _52gapfile = Path.Join(costumeDir, "52.gap");
+        if (File.Exists(_52gapfile))
+        {
+            costume.CombatGAP_52_BindPath = Path.GetRelativePath(costumesDir, _52gapfile);
+            this.criFsApi.AddBind(_52gapfile, costume.CombatGAP_52_BindPath, "Costume Framework");
         }
 
         var goodbyeFile = Path.Join(costumeDir, "aoa_goodbye.bcd");

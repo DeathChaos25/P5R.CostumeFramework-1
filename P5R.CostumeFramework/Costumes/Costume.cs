@@ -36,6 +36,10 @@ internal class Costume
 
     public string? GmdBindPath { get; set; }
 
+    public string? CombatGAP_51_BindPath { get; set; }
+
+    public string? CombatGAP_52_BindPath { get; set; }
+
     public string? MusicScriptFile { get; set; }
 
     public string? BattleThemeFile { get; set; }
