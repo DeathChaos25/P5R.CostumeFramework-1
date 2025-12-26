@@ -21,8 +21,16 @@ internal unsafe class CostumeGmdHook
     private MultiAsmHook? loadAssetAsmHooks;
 
     [Function(CallingConventions.Microsoft)]
-    private delegate bool LoadCombatAnimationString(nuint reshndField00, uint gapID, nint outPath, uint anim_type);
+    private delegate bool LoadCombatAnimationString(nuint reshndField00, int gapID, nint outPath, uint anim_type);
     private IHook<LoadCombatAnimationString>? _loadCombatAnimationStringHook;
+
+    [Function(CallingConventions.Microsoft)]
+    private delegate bool LoadABAAnimationString(nuint reshndField00, int gapID, nint outPath, uint anim_type);
+    private IHook<LoadABAAnimationString>? _loadABAAnimationStringHook;
+
+    [Function(CallingConventions.Microsoft)]
+    private delegate bool LoadABAnimationString(nuint reshndField00, int gapID, nint outPath, uint anim_type);
+    private IHook<LoadABAnimationString>? _loadABAnimationStringHook;
 
     private readonly nint* gmdFileStrPtr;
     private nint tempGmdStrPtr;
@@ -85,13 +93,31 @@ internal unsafe class CostumeGmdHook
             this.loadAssetAsmHooks.Activate().Disable();
         });
 
-        scanner.Scan("Load Combat Animation Files", "E8 ?? ?? ?? ?? 4C 8B C3 48 8D 4C 24 ?? E8 ?? ?? ?? ?? 48 89 83 ?? ?? ?? ?? 48 8B B4 24 ?? ?? ?? ??", result =>
+        scanner.Scan("Load Combat Animation Files", "E8 ?? ?? ?? ?? 48 8B D7 48 8D 4D ?? E8 ?? ?? ?? ?? 48 89 87 ?? ?? ?? ?? 89 B7 ?? ?? ?? ??", result =>
         {
             // CALL -> Thunk -> Function
             var funcAddress = GetGlobalAddress(result + 1);
             funcAddress = GetGlobalAddress((nint)(funcAddress + 1));
 
             this._loadCombatAnimationStringHook = hooks.CreateHook<LoadCombatAnimationString>(this.LoadCombatAnimationStringImpl, (long)funcAddress).Activate();
+        });
+
+        scanner.Scan("Load AB A Animation Files", "E8 ?? ?? ?? ?? 48 8B D7 48 8D 4C 24 ?? E8 ?? ?? ?? ?? 48 89 87 ?? ?? ?? ?? 48 8B CF", result =>
+        {
+            // CALL -> Thunk -> Function
+            var funcAddress = GetGlobalAddress(result + 1);
+            funcAddress = GetGlobalAddress((nint)(funcAddress + 1));
+
+            this._loadABAAnimationStringHook = hooks.CreateHook<LoadABAAnimationString>(this.LoadABAAnimationStringImpl, (long)funcAddress).Activate();
+        });
+
+        scanner.Scan("Load AB Animation Files", "E8 ?? ?? ?? ?? 48 8B D7 48 8D 4D ?? E8 ?? ?? ?? ?? 48 89 87 ?? ?? ?? ?? B8 FF FF FF FF", result =>
+        {
+            // CALL -> Thunk -> Function
+            var funcAddress = GetGlobalAddress(result + 1);
+            funcAddress = GetGlobalAddress((nint)(funcAddress + 1));
+
+            this._loadABAnimationStringHook = hooks.CreateHook<LoadABAnimationString>(this.LoadABAnimationStringImpl, (long)funcAddress).Activate();
         });
     }
 
@@ -114,7 +140,7 @@ internal unsafe class CostumeGmdHook
         this.ClearAssetRedirect();
     }
 
-    private bool LoadCombatAnimationStringImpl(nuint reshndField00, uint gapID, nint outPath, uint anim_type)
+    private bool LoadCombatAnimationStringImpl(nuint reshndField00, int gapID, nint outPath, uint anim_type)
     {
         bool result = _loadCombatAnimationStringHook.OriginalFunction(reshndField00, gapID, outPath, anim_type);
 
@@ -131,17 +157,96 @@ internal unsafe class CostumeGmdHook
         {
             string target_file = Marshal.PtrToStringAnsi(outPath);
 
-            if (anim_type == 1)
+            // "model/character/%04d/battle/bb%04d_%03d.GAP" -> 1
+            // "model/character/%04d/field/bf%04d_%03d.GAP"  -> 2
+            if (anim_type == 1 || anim_type == 2)
             {
-                var outptr = this.RedirectCombatGAPFile(charID, gapID);
+                var newGAP = this.RedirectCombatGAPFile(charID, gapID, target_file);
 
-                Log.Verbose($"Checking Combat GAP {gapID} for {charID} at {target_file}");
+                var animTypeString = anim_type == 1 ? "Combat" : "Field";
 
-                if (outptr != String.Empty)
+                Log.Debug($"Checking {animTypeString} GAP for {charID} at {target_file}");
+
+                if (newGAP != String.Empty)
                 {
-                    ReplaceFilePathWithMod(outPath, outptr);
+                    ReplaceFilePathWithMod(outPath, newGAP);
                     result = true;
-                    Log.Information($"{charID}: Successfully redirected combat GAP");
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private bool LoadABAnimationStringImpl(nuint reshndField00, int gapID, nint outPath, uint anim_type)
+    {
+        bool result = _loadABAnimationStringHook.OriginalFunction(reshndField00, gapID, outPath, anim_type);
+
+        nuint uVar1 = reshndField00 >> 0x3a;
+
+        if (-1 < (int)anim_type)
+        {
+            uVar1 = anim_type;
+        }
+
+        var charID = (Character)((reshndField00 >> 0x14) & 0xffff);
+
+        if ((int)charID <= 10)
+        {
+            string target_file = Marshal.PtrToStringAnsi(outPath);
+
+            // "model/character/%04d/battle/ab%04d_%03d.GAP" -> 1
+            // "model/character/%04d/field/af%04d_%03d.GAP"  -> 2
+            if (anim_type == 1 || anim_type == 2)
+            {
+                var newGAP = this.RedirectCombatGAPFile(charID, gapID, target_file);
+
+                var animTypeString = anim_type == 1 ? "Combat" : "Field";
+
+                Log.Debug($"Checking {animTypeString} GAP for {charID} at {target_file}");
+
+                if (newGAP != String.Empty)
+                {
+                    ReplaceFilePathWithMod(outPath, newGAP);
+                    result = true;
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private bool LoadABAAnimationStringImpl(nuint reshndField00, int gapID, nint outPath, uint anim_type)
+    {
+        bool result = _loadABAAnimationStringHook.OriginalFunction(reshndField00, gapID, outPath, anim_type);
+
+        nuint uVar1 = reshndField00 >> 0x3a;
+
+        if (-1 < (int)anim_type)
+        {
+            uVar1 = anim_type;
+        }
+
+        var charID = (Character)((reshndField00 >> 0x14) & 0xffff);
+
+        if ((int)charID <= 10)
+        {
+            string target_file = Marshal.PtrToStringAnsi(outPath);
+
+            // "model/character/%04d/battle/ab%04d_%03da.GAP" -> 1
+            // "model/character/%04d/field/af%04d_%03da.GAP"  -> 2
+            if (anim_type == 1 || anim_type == 2)
+            {
+                var newGAP = this.RedirectCombatGAPFile(charID, gapID, target_file);
+
+                var animTypeString = anim_type == 1 ? "Combat" : "Field";
+
+                Log.Debug($"Checking {animTypeString} GAP for {charID} at {target_file}");
+
+                if (newGAP != String.Empty)
+                {
+                    ReplaceFilePathWithMod(outPath, newGAP);
+                    result = true;
                 }
             }
         }
@@ -210,7 +315,7 @@ internal unsafe class CostumeGmdHook
         else Log.Verbose($"No redirect match for {character} in {outfitSet}");
     }
 
-    private string RedirectCombatGAPFile(Character character, uint gapID)
+    private string RedirectCombatGAPFile(Character character, int gapID, string gapFile)
     {
         string result = String.Empty;
 
@@ -222,26 +327,33 @@ internal unsafe class CostumeGmdHook
         if (IsOutfitModelId((int)gmdId)
             && this.costumes.TryGetCostume(outfitItemId, out var costume))
         {
-            if (gapID == 51)
+            if (gapID > 0)
             {
-                if (costume.CombatGAP_51_BindPath != null)
+                var outPath = TryGetGapFilePath(costume, gapFile);
+
+                if (outPath != string.Empty)
                 {
-                    result = costume.CombatGAP_51_BindPath;
-                    Log.Verbose($"{character}: redirected {outfitSet} Combat GAP 51 to {costume.CombatGAP_51_BindPath}");
-                }
-            }
-            else if (gapID == 52)
-            {
-                if (costume.CombatGAP_52_BindPath != null)
-                {
-                    result = costume.CombatGAP_52_BindPath;
-                    Log.Verbose($"{character}: redirected {outfitSet} Combat GAP 52 to {costume.CombatGAP_52_BindPath}");
+                    result = outPath;
+                    Log.Debug($"{character}: redirected {outfitSet} GAP {gapFile} to {outPath}");
                 }
             }
         }
-        else Log.Verbose($"No redirect match for {character} in {outfitSet}");
+        else Log.Debug($"No redirect match for {character} in {outfitSet}");
 
         return result;
+    }
+
+    public string TryGetGapFilePath(Costume costume, string filePath)
+    {
+        if (costume == null || string.IsNullOrEmpty(filePath))
+            return string.Empty;
+
+        string key = Path.GetFileName(filePath);
+
+        if (costume.CombatGAP_BindPaths?.TryGetValue(key, out string? value) == true)
+            return value ?? string.Empty;
+
+        return string.Empty;
     }
 
     private void SetAssetRedirect(string redirectPath)

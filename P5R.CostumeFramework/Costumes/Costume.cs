@@ -36,9 +36,8 @@ internal class Costume
 
     public string? GmdBindPath { get; set; }
 
-    public string? CombatGAP_51_BindPath { get; set; }
-
-    public string? CombatGAP_52_BindPath { get; set; }
+    public Dictionary<string, string> CombatGAP_BindPaths { get; set; }
+    = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
     public string? MusicScriptFile { get; set; }
 

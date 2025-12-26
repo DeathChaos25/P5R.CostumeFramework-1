@@ -153,18 +153,19 @@ internal class CostumeFactory
             }
         }
 
-        var _51gapfile = Path.Join(costumeDir, "51.gap");
-        if (File.Exists(_51gapfile))
+        var animationsDir = Path.Join(costumeDir, "animations");
+        if (Directory.Exists(animationsDir))
         {
-            costume.CombatGAP_51_BindPath = Path.GetRelativePath(costumesDir, _51gapfile);
-            this.criFsApi.AddBind(_51gapfile, costume.CombatGAP_51_BindPath, "Costume Framework");
-        }
+            var gapFiles = Directory.GetFiles(animationsDir, "*.gap", SearchOption.TopDirectoryOnly);
 
-        var _52gapfile = Path.Join(costumeDir, "52.gap");
-        if (File.Exists(_52gapfile))
-        {
-            costume.CombatGAP_52_BindPath = Path.GetRelativePath(costumesDir, _52gapfile);
-            this.criFsApi.AddBind(_52gapfile, costume.CombatGAP_52_BindPath, "Costume Framework");
+            foreach (var gapFile in gapFiles)
+            {
+                var fileName = Path.GetFileName(gapFile).ToLower();
+                var relativePath = Path.GetRelativePath(costumesDir, gapFile);
+
+                costume.CombatGAP_BindPaths[fileName] = relativePath;
+                this.criFsApi.AddBind(gapFile, relativePath, "Costume Framework");
+            }
         }
 
         var goodbyeFile = Path.Join(costumeDir, "aoa_goodbye.bcd");
